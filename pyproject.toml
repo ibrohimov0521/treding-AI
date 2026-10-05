@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "trading-platform"
+version = "0.1.0"
+description = "A safe, market-agnostic foundation for quantitative research; Phase 0–1 only."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "httpx>=0.27,<1",
+  "pydantic>=2.8,<3",
+  "pydantic-settings>=2.4,<3",
+  "polars>=1.8,<2",
+  "pyarrow>=17,<30",
+  "PyYAML>=6,<7",
+  "tenacity>=9,<10",
+  "structlog>=24.4,<26",
+  "typer>=0.12,<1",
+]
+
+[project.scripts]
+trading-platform = "trading_platform.cli:app"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.11,<2",
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.24,<2",
+  "ruff>=0.6,<1",
+  "types-PyYAML>=6.0.12,<7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trading_platform"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra"
+markers = ["integration: makes a small read-only request to Binance public API"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+packages = ["trading_platform"]
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["tests"]

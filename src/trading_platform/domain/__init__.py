@@ -1,0 +1,1 @@
+"""Exchange-independent domain objects."""

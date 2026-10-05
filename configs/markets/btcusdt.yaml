@@ -1,0 +1,12 @@
+exchange: binance
+market_type: spot
+symbol: BTCUSDT
+base_asset: BTC
+quote_asset: USDT
+raw_timeframe: 1m
+derived_timeframes:
+  - 5m
+  - 15m
+  - 1h
+timezone: UTC
+live_trading: false
