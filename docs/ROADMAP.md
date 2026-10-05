@@ -1,5 +1,8 @@
 # Loyiha roadmap’i
 
+Tezkor signal yetkazish va qolgan ishlarning batafsil tartibi:
+[SIGNAL_DELIVERY_PLAN.md](SIGNAL_DELIVERY_PLAN.md).
+
 Platforma keyingi bosqichga faqat oldingi bosqich natijasi tekshirilgach o‘tadi.
 Hozir loyiha Binance Spot BTCUSDT public ma’lumotlarida research, backtest va
 virtual paper hisobni bajaradi. Birjaga order yuboradigan kod yo‘q.
