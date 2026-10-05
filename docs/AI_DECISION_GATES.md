@@ -21,7 +21,9 @@ hisob kamayadi. Hech bir reja 5/10 yutuqni yoki foydani kafolatlay olmaydi.
    UTC vaqt, manba, schema versiyasi bilan yozish. Gap, dublikat, eski data va
    outlier'ni aniqlash; REST backfill bilan tiklash. `BITSTAMP:BTCUSD` uchun
    Bitstamp ma'lumoti va o'z fee qoidasi kerak; Binance BTCUSDT natijasini unga
-   ko'chirib bo'lmaydi.
+   ko'chirib bo'lmaydi. Tarixiy downloader har muvaffaqiyatli sahifani alohida
+   atomik yozadi; uzoq download'lar RAMda to'liq to'planmaydi va uzilishdan
+   oldingi to'liq sahifalar saqlanib qoladi.
 2. **Candidate train:** Faqat yopilgan tarixdan feature va label; train,
    calibration, validation va tegilmagan test oynalarini vaqt bo'yicha ajratish,
    horizon miqdorida purge. Raw history o'zgarmas manba; derived feature qayta

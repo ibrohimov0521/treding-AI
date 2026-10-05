@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 import structlog
 
 from trading_platform.core.enums import Timeframe
-from trading_platform.domain.candle import Candle
 from trading_platform.market_data.base import MarketDataProvider
 from trading_platform.storage.base import CandleStorage
 
@@ -35,7 +34,8 @@ class HistoricalDownloader:
         if start >= end:
             raise ValueError("Download start must be earlier than end")
         cursor = start
-        fetched: list[Candle] = []
+        fetched_count = 0
+        inserted_count = 0
         last_open: datetime | None = None
         while cursor < end:
             page = await self.provider.get_klines(
@@ -55,7 +55,10 @@ class HistoricalDownloader:
                 and candle.close_time < datetime.now(UTC)
                 and (last_open is None or candle.open_time > last_open)
             ]
-            fetched.extend(fresh)
+            fetched_count += len(fresh)
+            # Commit every completed page atomically. Long archives stay
+            # bounded in memory and a later network failure keeps prior pages.
+            inserted_count += self.storage.save_raw(fresh)
             if not fresh:
                 break
             last_open = fresh[-1].open_time
@@ -72,8 +75,7 @@ class HistoricalDownloader:
             )
             if len(page) < BINANCE_PAGE_SIZE:
                 break
-        inserted = self.storage.save_raw(fetched)
-        return len(fetched), inserted
+        return fetched_count, inserted_count
 
 
 def _utc(value: datetime) -> datetime:

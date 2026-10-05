@@ -59,3 +59,32 @@ async def test_download_requires_aware_boundaries(candle_factory, tmp_path) -> N
             datetime(2024, 1, 1),
             datetime(2024, 1, 2, tzinfo=UTC),
         )
+
+
+@pytest.mark.asyncio
+async def test_download_persists_completed_pages_before_later_failure(
+    tmp_path, candle_factory, monkeypatch
+) -> None:
+    first = candle_factory(0)
+
+    class FailsAfterFirstPage(PaginatedProvider):
+        async def get_klines(self, symbol, interval, start_time=None, end_time=None, limit=1000):
+            self.cursors.append(start_time)
+            if len(self.cursors) > 1:
+                raise RuntimeError("simulated connection loss")
+            return [first]
+
+    monkeypatch.setattr(downloader_module, "BINANCE_PAGE_SIZE", 1)
+    storage = ParquetCandleStorage(tmp_path / "data")
+    downloader = HistoricalDownloader(FailsAfterFirstPage([first]), storage)
+    with pytest.raises(RuntimeError, match="connection loss"):
+        await downloader.download(
+            "BINANCE",
+            "spot",
+            "BTCUSDT",
+            Timeframe.ONE_MINUTE,
+            first.open_time,
+            first.open_time + timedelta(minutes=3),
+        )
+    saved = storage.load_candles("binance", "spot", "BTCUSDT", "1m")
+    assert [candle.open_time for candle in saved] == [first.open_time]
