@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "trading-platform"
 version = "0.1.0"
-description = "A safe, market-agnostic foundation for quantitative research; Phase 0–1 only."
+description = "A safe, market-agnostic quantitative research platform; no live order execution."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -19,6 +19,9 @@ dependencies = [
   "structlog>=24.4,<26",
   "typer>=0.12,<1",
 ]
+
+[project.optional-dependencies]
+ml = ["scikit-learn>=1.8,<2"]
 
 [project.scripts]
 trading-platform = "trading_platform.cli:app"

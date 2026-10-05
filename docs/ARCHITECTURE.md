@@ -14,6 +14,9 @@ Raw Parquet (takror yozuvdan himoyalangan)
 DataQualityReport
           ↓
 Resampling → processed Parquet (5m / 15m / 1h)
+          ↓
+Causal features → EMA-12/26 target exposure → Backtest simulator
+                                          (next-candle-open fills; no orders)
 ```
 
 `MarketDataProvider` — birjadan mustaqil interfeys. Hozir faqat
@@ -33,7 +36,10 @@ formatini bilishi shart bo‘lmaydi.
 | `storage/parquet.py` | Year/month partition, raw deduplication va processed data |
 | `validation/candles.py` | Duplicate, gap, tartib, OHLCV, vaqt va corrupt qiymatlar |
 | `market_data/resampling.py` | To‘liq UTC 1m guruhlaridan candle aggregation |
-| `cli.py` | Developer buyruqlari; live execution buyrug‘i yo‘q |
+| `features/engineering.py` | Causal returns, EMA, RSI, ATR, volatility va volume feature’lari |
+| `strategies/moving_average.py` | EMA-12/26 long/flat benchmark signali |
+| `backtesting/engine.py` | Spot long-only simulator, next-open fills, fee/spread/slippage |
+| `cli.py` | Data, validation, features va backtest buyruqlari; live execution yo‘q |
 
 ## Parquet data modeli
 
@@ -48,6 +54,11 @@ yoziladi. Bu candle qiymatlarini immutable saqlaydi, lekin faylning baytlarini
 append-only qilmaydi. Schema version va manba provenance’i keyingi bosqichdagi
 technical debt hisoblanadi.
 
+Feature Parquet har bir candle uchun bitta qator saqlaydi. Warm-up davridagi
+indicator qiymatlari `null`; `ready` EMA-12/26, RSI-14, ATR-14, 20-return
+volatility va 20-candle relative-volume mavjudligini bildiradi. Feature’lar faqat
+shu qatorgacha yopilgan candle’lardan olinadi.
+
 ## Retry va pagination
 
 Har bir klines so‘rovi ko‘pi bilan 1000 candle oladi. Keyingi `startTime` — oxirgi
@@ -59,26 +70,26 @@ oshirilganda 429, qayta-qayta cheklovni buzishda esa 418 qaytishi mumkin.
 
 ## Kelajakdagi komponentlar
 
-Quyidagilar **TODO/FUTURE**, Phase 0–1’da kodlanmagan:
+Quyidagilar **TODO/FUTURE**, Phase 0–9’da hali kodlanmagan:
 
 ```text
 Validated processed data
- → Feature Engine (TODO)
- → ML Model (TODO)
- → Strategy (TODO)
- → Risk Engine (TODO)
- → Paper Trading (TODO)
- → Execution Adapter (TODO; order yubormaydi)
+ → Label/dataset va vaqt bo‘yicha split (tayyor)
+ → LogisticRegression baseline va purged walk-forward (tayyor; optional ML extra)
+ → Paper-trading engine va restartable checkpoint (tayyor; virtual pozitsiya)
+ → Risk engine (tayyor; exposure, daily loss, drawdown)
+ → Authenticated execution adapter (TODO; alohida ruxsat va gate talab qiladi)
 ```
 
-Keyingi bosqichdan oldin uzoq muddatli yuklash bilan data completeness, schema
-version, provenance va takrorlanadigan backfill oqimi tekshiriladi. Hozirgi loyiha
-BUY/SELL signali bermaydi.
+Hozirgi EMA benchmark long/flat target exposure chiqaradi; simulator signalni candle
+yopilgach oladi va keyingi candle ochilishida taxminiy fill qiladi. Paper engine
+public yopilgan candle’larni virtual hisobga qo‘llaydi, holatni atomik checkpoint’da
+saqlaydi va risk limitida targetni nolga tushiradi. Binance’ga order yuborilmaydi.
 
 ## Xavfsizlik qoidalari
 
 1. Maxfiy kalitlarni o‘qiydigan sozlama yo‘q; public so‘rovga API key qo‘shilmaydi.
-2. Phase 1 config’ida `live_trading: true` bo‘lsa, validatsiya uni rad etadi.
-3. Client faqat market-data GET endpoint’larini chaqiradi; order endpoint yo‘q.
+2. `live_trading: true` bo‘lsa, config validatsiyasi uni rad etadi.
+3. Exchange client faqat public market-data GET endpoint’larini chaqiradi; order endpoint yo‘q.
 4. Kelajakda execution qo‘shilsa production muhiti, aniq ruxsat, risk engine approval
    va kill switch alohida tekshiriladi. Bitta config flag yetmaydi.

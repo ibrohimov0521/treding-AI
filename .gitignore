@@ -7,8 +7,14 @@ __pycache__/
 .env
 data/raw/**
 data/processed/**
+data/features/**
+data/datasets/**
 data/reports/**
+data/paper/**
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+!data/features/.gitkeep
+!data/datasets/.gitkeep
 !data/reports/.gitkeep
+!data/paper/.gitkeep
 *.log

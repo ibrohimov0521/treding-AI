@@ -1,29 +1,40 @@
-# Trading Platform — Phase 0–1
+# Trading Platform — Phase 0–9
 
-> **WARNING: THIS PROJECT MUST NOT PLACE REAL ORDERS IN PHASE 0–8.**
-> Phase 0–1 only downloads public Binance Spot market data. There is no order,
-> account, balance, signed-request, leverage, futures, or live-execution module.
-> `live_trading` is a validated literal `false`; setting it to `true` is rejected.
+> **Safety: this project does not send real orders.** The implementation downloads
+> public Binance Spot data, builds causal features and ML research datasets, runs
+> walk-forward evaluation, and can update a restartable virtual Spot portfolio.
+> It has no authenticated account, signed-request, leverage, futures, or
+> live-execution module. `live_trading` is a validated literal `false`; setting it
+> to `true` is rejected.
 
 ## Loyiha maqsadi
 
-Bu loyiha BTC/USDT bilan boshlanadigan, lekin bitta coin yoki bitta birjaga qattiq
-bog‘lanmagan quantitative research platform poydevoridir. Hozirgi scope ataylab
-kichik: Binance Spot’dan **faqat public 1m candle** ma’lumotlarini olish, ularni
-tekshirish va mahalliy Parquet fayllarda saqlash. 5m, 15m va 1h ma’lumotlar 1m
-qatorlardan qayta hosil qilinadi.
+Bu loyiha BTC/USDT bilan boshlanadigan, lekin bitta coin yoki birjaga qattiq
+bog‘lanmagan quantitative research platformadir. Hozir Binance Spot public
+ma’lumotlarini yuklaydi, tekshiradi va Parquet’da saqlaydi; yopilgan candle’lardan
+feature’lar hisoblaydi; EMA benchmarkni keyingi candle ochilishida simulyatsion fill
+bilan tarixiy tekshiradi. Forward-return dataset, purged walk-forward LogisticRegression
+baseline va virtual Spot paper portfolio mavjud. Raw 1m ma’lumotdan 5m, 15m va 1h
+qatorlar hosil qilinadi. ML ehtimollari kalibrlanmagan; ular real order yoki
+tasdiqlangan edge emas.
 
 Ma’lumot oqimi:
 
 ```text
-Binance public API → MarketDataProvider → Raw Parquet → Data validation
-                                                   ↓
-                                            Processed Parquet
+Binance public API → MarketDataProvider → Raw Parquet → Validation
+                                              ↓
+                                     Resample → Processed Parquet
+                                              ↓
+                                    Causal features → EMA / ML research
+                                              ↓
+                            Backtest → Paper portfolio → Risk halt
+                                              ↓
+                                 No authenticated orders
 ```
 
-Feature engineering, model, strategiya, backtest va order bajarish keyingi
-bosqichlar. Ular bu kodda yo‘q. Bosh maqsad — keyinchalik real kapitalga aloqador
-qarorlar oldidan tekshirib bo‘ladigan va takrorlanuvchi ma’lumot poydevorini qurish.
+EMA strategiyasi foyda va’da qilmaydigan, taqqoslash uchun mo‘ljallangan benchmarkdir.
+Backtest natijasi faqat tanlangan tarixiy oraliq va cost taxminlarini ifodalaydi; u
+live natija yoki statistik edge isboti emas.
 
 ## Arxitektura tamoyillari
 
@@ -37,6 +48,10 @@ qarorlar oldidan tekshirib bo‘ladigan va takrorlanuvchi ma’lumot poydevorini
 - Oylik Parquet partition Zstandard bilan siqiladi. Derived data raw’dan alohida.
 - Exchange-specific parsing faqat provider qatlamida; data model, validation va
   resampling providerdan mustaqil.
+- Feature’lar faqat joriy va oldingi yopilgan candle’lardan tuziladi; indikator
+  warm-up davri `ready=false` sifatida belgilanadi.
+- Backtest signalni candle yopilgach oladi va eng erta keyingi candle ochilishida
+  simulyatsiya qiladi; fee, spread va slippage alohida hisoblanadi.
 
 ## Talablar va o‘rnatish
 
@@ -53,7 +68,11 @@ uv run trading-platform health
 
 `uv sync --dev` package, CLI, test, lint va type-check dependencies’larini o‘rnatadi
 hamda platform-specific `uv.lock` lockfile yaratadi. `.env` ichidagi Binance key
-maydonlari bo‘sh qoladi.
+maydonlari bo‘sh qoladi. Walk-forward ML uchun optional dependency’ni qo‘shing:
+
+```bash
+uv sync --dev --extra ml
+```
 
 ## Komandalar
 
@@ -93,6 +112,14 @@ uv run trading-platform validate --symbol BTCUSDT --interval 1m
 uv run trading-platform resample --symbol BTCUSDT --from 1m --to 5m
 uv run trading-platform resample --symbol BTCUSDT --from 1m --to 15m
 uv run trading-platform resample --symbol BTCUSDT --from 1m --to 1h
+uv run trading-platform features --symbol BTCUSDT --interval 1m
+uv run trading-platform backtest --symbol BTCUSDT --interval 1m \
+  --start 2024-01-01 --end 2024-02-01 --fee-bps 10 --spread-bps 2 --slippage-bps 5
+uv run trading-platform build-dataset --symbol BTCUSDT --interval 1m --horizon 5
+uv run trading-platform walk-forward --symbol BTCUSDT --interval 1m \
+  --horizon 5 --min-train-rows 1000 --test-rows 500
+uv run trading-platform paper --symbol BTCUSDT --interval 1m
+uv run trading-platform paper --symbol BTCUSDT --interval 1m --follow
 uv run pytest
 uv run ruff check .
 uv run mypy
@@ -101,6 +128,35 @@ uv run mypy
 Resampling faqat har bir 1m candle to'liq mavjud bo'lgan UTC bucket’ni saqlaydi. Gap
 yoki dataset chegarasidagi chala bucket tashlab ketiladi va soni ko'rsatiladi. Data-quality
 report: `data/reports/binance/spot/<SYMBOL>/<TIMEFRAME>/quality.json`.
+Derived timeframe’lar `processed` data’dan tekshiriladi.
+
+### Feature engineering va backtest
+
+`features` buyruği `return_1/5/15`, EMA-12/26, RSI-14, ATR-14, 20 candle’lik
+volatility va relative volume, volume change, candle range va taker-buy ratio’ni
+hisoblaydi. Har bir qatorning vaqti candle yopilgan paytga tegishli. Warm-up
+qiymatlari `null`; ular nolga almashtirilmaydi.
+
+`backtest` hozircha EMA-12/26 long/flat benchmarkini ishlatadi. Strategiya signalni
+close’dan keyin chiqaradi, fill esa keyingi candle’ning open narxida, sozlangan
+half-spread va slippage bilan simulyatsiya qilinadi. Spot modeli short pozitsiyaga
+ruxsat bermaydi; uzilgan timeframe qatori aniqlansa test to‘xtaydi. Fee, spread yoki
+slippage’ni nol qilish mumkin, lekin bunday natijani realistik deb talqin qilmang.
+
+`build-dataset` yopilgan candle feature’laridan kelajak return label’larini alohida
+datasetga yozadi. `walk-forward` vaqt tartibini saqlagan purged train/test fold’lar
+bilan baseline modelni tekshiradi; bu buyruq uchun `uv sync --dev --extra ml`
+kerak. `paper` faqat public candle’larni yuklaydi, keyingi candle open’da virtual
+fill simulyatsiya qiladi va holatni checkpoint’ga yozadi. `--follow` jarayonni
+terminalda uzluksiz ishlatadi. Risk limiti yetganda virtual target nolga tushadi va
+mavjud virtual pozitsiya keyingi candle’da yopiladi. Paper hisob real birja balansiga
+ulanmaydi va order yubormaydi.
+
+```bash
+uv run trading-platform resample --from 1m --to 5m
+uv run trading-platform features --interval 5m
+uv run trading-platform backtest --interval 5m --starting-cash 10000
+```
 
 ### Integratsion test (ixtiyoriy)
 
@@ -116,8 +172,12 @@ RUN_BINANCE_INTEGRATION=1 uv run pytest -m integration
 data/
 ├── raw/binance/spot/BTCUSDT/1m/year=2024/month=01/candles.parquet
 ├── processed/binance/spot/BTCUSDT/5m/year=2024/month=01/candles.parquet
+├── features/binance/spot/BTCUSDT/1m/features.parquet
 └── reports/binance/spot/BTCUSDT/1m/quality.json
 ```
+
+Backtest summary va equity curve `data/reports/backtest/<exchange>/<market>/<symbol>/<timeframe>/`
+ichida JSON va Parquet fayllarda saqlanadi.
 
 Raw path exchange, market type, symbol, timeframe, year va month bo'yicha ajralgan.
 Oldingi `open_time` qiymatlari saqlanadi, takroriy timestamp yangi satr bo'lmaydi.
@@ -153,16 +213,16 @@ Missing candle’lar mavjuddek to'ldirilmaydi.
   delisting bo'lganlarni tashlab ketish tarixiy natijani asossiz yaxshilaydi.
 - **Overfitting:** ortiqcha parameter search tarixiy bozorni yodlatib qo'yadi; walk-forward
   validation va avval ko'rilmagan test davrini ishlating.
-- **Transaction cost:** kelajak backtest’lari commission, spread va slippage’ni hisoblasin.
-  Fee’siz natija amaliy foydaning isboti emas.
+- **Transaction cost:** backtest commission, spread va slippage’ni hisoblaydi. Doimiy
+  bps taxminlari order-book impact va real fee tier’ni to‘liq modellashtirmaydi.
+  Fee’siz yoki qisqa davrli natija edge isboti emas.
 
 ## Xavfsizlik
 
-`.env` git’ga qo'shilmaydi; `.env.example`’da key qiymatlari bo'sh. Kod Binance account
-yoki order endpoint’lariga murojaat qilmaydi. Keyin execution qo'shilsa, faqat
-`LIVE_TRADING=false` etarli himoya bo'lmaydi: production muhiti, explicit permission,
-risk engine ruxsati, miqdor limiti va kill switch kabi bir necha mustaqil nazorat
-kerak. Roadmap’dagi Phase 0–8 davomida haqiqiy order yuborilmaydi.
+`.env` git’ga qo‘shilmaydi; `.env.example`’da credential qiymatlari bo‘sh. Kod Binance
+account yoki order endpoint’lariga murojaat qilmaydi. Keyingi bosqichlarda execution
+qo‘shish alohida xavfsizlik va ruxsat ko‘rigini talab qiladi; bitta `LIVE_TRADING=false`
+flag yetarli himoya bo‘lmaydi. Ushbu kodda real order yuborish yo‘li mavjud emas.
 
 ## Binance API manbasi
 

@@ -21,6 +21,7 @@ Tabiiy identity key: `(exchange, market_type, symbol, timeframe, open_time)`.
 ```text
 <data_dir>/raw/<exchange>/<market>/<symbol>/<timeframe>/year=YYYY/month=MM/candles.parquet
 <data_dir>/processed/<exchange>/<market>/<symbol>/<timeframe>/year=YYYY/month=MM/candles.parquet
+<data_dir>/features/<exchange>/<market>/<symbol>/<timeframe>/features.parquet
 ```
 
 Har oy alohida o‘qiladi. Raw write bir xil key’ni ikkinchi marta qo‘shmaydi va
@@ -45,3 +46,35 @@ candle 12:05 dan 12:09 gacha bo‘lgan minutlarni birlashtiradi. Kutilgan har bi
 | `PASS` | Tekshirilgan muammo topilmadi |
 | `WARNING` | Duplicate, missing yoki tartibsiz candle; ma’lumot yashirincha tuzatilmaydi |
 | `FAIL` | Noto‘g‘ri OHLC, manfiy volume, null/corrupt qator yoki imkonsiz timestamp |
+
+## Feature rows
+
+`features` buyruği har bir yopilgan candle uchun bitta row chiqaradi. Identity va
+vaqt ustunlari candle’dan ko‘chiriladi; indikatorlar Float64, warm-up yetmagan
+qiymatlar null bo‘ladi. Fayl yo‘li:
+`<data_dir>/features/<exchange>/<market>/<symbol>/<timeframe>/features.parquet`.
+
+| Feature | Hisoblash |
+| --- | --- |
+| `return_1`, `return_5`, `return_15` | `close[t] / close[t-n] - 1` |
+| `ema_12`, `ema_26` | Exponential moving average; span uzunligidagi SMA seed |
+| `rsi_14` | Wilder smoothing; close o‘zgarishlaridan |
+| `atr_14` | True range va Wilder smoothing |
+| `realized_volatility_20` | So‘nggi 20 close-to-close return’ning population standard deviation’i |
+| `relative_volume_20` | Hozirgi volume / so‘nggi 20 candle volume o‘rtachasi |
+| `volume_change_1` | Joriy volume / oldingi volume - 1 |
+| `range_pct` | `(high - low) / close` |
+| `taker_buy_ratio` | Taker-buy base volume / base volume |
+
+Hisoblash faqat shu qator va undan oldingi candle’larni o‘qiydi. `as_of` cutoff’ida
+`close_time >= as_of` bo‘lgan candle chiqarib tashlanadi. `ready` indikatorlar to‘liq
+hisoblanishi uchun warm-up tugaganini bildiradi; label yoki kelajak return’ni anglatmaydi.
+
+## Backtest report
+
+EMA-12/26 benchmark long-only Spot target exposure beradi. Signal close’dan keyin
+yaratiladi; target o‘zgarishi eng erta navbatdagi candle open’da bajariladi. Fee,
+half-spread va slippage fill narxiga qo‘shiladi, commission esa notional’dan ayriladi.
+Backtest uzluksiz candle ketma-ketligini talab qiladi. Equity curve string ko‘rinishidagi
+Decimal qiymatlari bilan Parquet’da, summary esa JSON’da saqlanadi. Report simulyatsiya
+taxminlarini beradi; real order, fill, liquidity yoki edge kafolatlamaydi.
