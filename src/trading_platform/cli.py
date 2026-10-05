@@ -1,6 +1,7 @@
 """Developer command-line interface for safe research workflows."""
 
 import asyncio
+import hashlib
 import json
 from collections.abc import Coroutine
 from dataclasses import asdict
@@ -14,13 +15,14 @@ import typer
 
 from trading_platform import __version__
 from trading_platform.backtesting.engine import BacktestConfig, run_backtest
+from trading_platform.backtesting.statistics import summarize_trades
 from trading_platform.core.config import MarketConfig, Settings, load_market_config
 from trading_platform.core.enums import Timeframe
 from trading_platform.core.exceptions import TradingPlatformError
 from trading_platform.core.logging import configure_logging
 from trading_platform.features.engineering import compute_features, features_frame
-from trading_platform.market_data.binance_spot import BinanceSpotMarketDataProvider
 from trading_platform.market_data.downloader import HistoricalDownloader
+from trading_platform.market_data.providers import public_market_data_provider
 from trading_platform.market_data.resampling import resample_candles
 from trading_platform.ml.dataset import build_labeled_dataset
 from trading_platform.ml.walkforward import evaluate_walk_forward
@@ -79,16 +81,23 @@ def _run[ResultT](coroutine: Coroutine[object, object, ResultT]) -> ResultT:
 
 
 @app.command()
-def health() -> None:
-    """Check connectivity to Binance's public Spot API."""
+def health(
+    config: Path = typer.Option(DEFAULT_CONFIG, "--config", help="Market YAML configuration."),
+) -> None:
+    """Check connectivity to the configured exchange's public Spot API."""
+    market = load_market_config(config)
 
     async def run() -> bool:
-        async with BinanceSpotMarketDataProvider() as provider:
+        async with public_market_data_provider(market.exchange) as provider:
             return await provider.health_check()
 
     configure_logging()
     healthy = _run(run())
-    typer.echo("Binance public API: healthy" if healthy else "Binance public API: unavailable")
+    typer.echo(
+        f"{market.exchange} public API: healthy"
+        if healthy
+        else f"{market.exchange} public API: unavailable"
+    )
 
 
 @app.command()
@@ -144,7 +153,7 @@ def download(
         return
 
     async def run() -> tuple[int, int]:
-        async with BinanceSpotMarketDataProvider() as provider:
+        async with public_market_data_provider(market.exchange) as provider:
             downloader = HistoricalDownloader(provider, storage)
             return await downloader.download(
                 exchange=market.exchange,
@@ -297,6 +306,9 @@ def backtest(
     slippage_bps: float = typer.Option(
         5.0, min=0.0, max=9_999.0, help="Per-side slippage in basis points."
     ),
+    stop_loss_pct: float | None = typer.Option(
+        None, min=0.01, max=99.99, help="Optional virtual long stop below entry, in percent."
+    ),
     max_daily_loss_pct: float = typer.Option(
         2.0, min=0.01, max=100.0, help="Latch a halt at this daily loss percentage."
     ),
@@ -338,6 +350,7 @@ def backtest(
                 fee_bps=Decimal(str(fee_bps)),
                 spread_bps=Decimal(str(spread_bps)),
                 slippage_bps=Decimal(str(slippage_bps)),
+                stop_loss_pct=Decimal(str(stop_loss_pct)) if stop_loss_pct is not None else None,
             ),
             risk_limits=RiskLimits(
                 max_daily_loss_pct=Decimal(str(max_daily_loss_pct)),
@@ -359,21 +372,27 @@ def backtest(
     )
     report_dir.mkdir(parents=True, exist_ok=True)
     range_key = f"{candles[0].open_time:%Y%m%dT%H%M}_{candles[-1].open_time:%Y%m%dT%H%M}"
-    report_path = report_dir / f"{result.strategy}_{range_key}.json"
-    equity_path = report_dir / f"{result.strategy}_{range_key}_equity.parquet"
     report = result.to_dict()
     report.pop("equity_curve")
+    report["trade_statistics"] = summarize_trades(result.fills)
     report["assumptions"] = {
         "signal_timing": "after candle close; fill at the next candle open",
         "positioning": "long-only spot; target exposure from 0 to 100%",
         "fee_bps": str(Decimal(str(fee_bps))),
         "spread_bps_full": str(Decimal(str(spread_bps))),
         "slippage_bps_per_side": str(Decimal(str(slippage_bps))),
+        "stop_loss_pct": str(Decimal(str(stop_loss_pct))) if stop_loss_pct is not None else None,
+        "stop_model": "OHLC low trigger; gap fills at open; per-side costs; virtual only",
         "max_daily_loss_pct": str(Decimal(str(max_daily_loss_pct))),
         "max_drawdown_pct": str(Decimal(str(max_drawdown_pct))),
         "max_exposure": str(Decimal(str(max_exposure))),
         "live_orders": False,
     }
+    run_key = hashlib.sha256(
+        json.dumps(report["assumptions"], sort_keys=True).encode("utf-8")
+    ).hexdigest()[:12]
+    report_path = report_dir / f"{result.strategy}_{range_key}_{run_key}.json"
+    equity_path = report_dir / f"{result.strategy}_{range_key}_{run_key}_equity.parquet"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     pl.DataFrame([asdict(point) for point in result.equity_curve]).write_parquet(
         equity_path, compression="zstd"
@@ -387,6 +406,11 @@ def backtest(
     typer.echo(f"Max drawdown: {result.max_drawdown_pct}%")
     typer.echo(
         f"Simulated fills: {result.trade_count}; fees: {result.fees_paid} {market.quote_asset}"
+    )
+    stats = summarize_trades(result.fills)
+    typer.echo(
+        f"Closed trades: {stats['closed_trades']}; wins: {stats['winning_trades']}; "
+        f"win rate: {stats['win_rate_pct']}%; stop exits: {result.stop_exits}"
     )
     typer.echo(f"Report: {report_path}")
     typer.echo(f"Equity curve: {equity_path}")
@@ -627,7 +651,7 @@ def paper_command(
     )
 
     async def run() -> None:
-        async with BinanceSpotMarketDataProvider() as provider:
+        async with public_market_data_provider(market.exchange) as provider:
             downloader = HistoricalDownloader(provider, storage)
             while True:
                 now = datetime.now(UTC)

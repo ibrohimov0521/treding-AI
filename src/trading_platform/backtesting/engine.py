@@ -24,6 +24,7 @@ class BacktestConfig:
     fee_bps: Decimal = Decimal("10")
     spread_bps: Decimal = Decimal("2")
     slippage_bps: Decimal = Decimal("5")
+    stop_loss_pct: Decimal | None = None
 
     def __post_init__(self) -> None:
         if self.starting_cash <= ZERO:
@@ -36,6 +37,10 @@ class BacktestConfig:
             raise ValueError("slippage_bps must be in [0, 10000)")
         if self.spread_bps / 2 + self.slippage_bps >= BPS:
             raise ValueError("combined per-side spread and slippage must be below 10000 bps")
+        if self.stop_loss_pct is not None and (
+            not self.stop_loss_pct.is_finite() or not ZERO < self.stop_loss_pct < Decimal("100")
+        ):
+            raise ValueError("stop_loss_pct must be in (0, 100)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +78,7 @@ class BacktestResult:
     risk_halted: bool
     risk_halt_reason: str | None
     fees_paid: str
+    stop_exits: int
     ending_cash: str
     ending_base_quantity: str
     fills: tuple[Fill, ...]
@@ -122,6 +128,9 @@ def run_backtest(
     cash = settings.starting_cash
     quantity = ZERO
     fees_paid = ZERO
+    stop_exits = 0
+    entry_price: Decimal | None = None
+    stopped_out = False
     pending_target: Decimal | None = None
     fills: list[Fill] = []
     equity_curve: list[EquityPoint] = []
@@ -147,7 +156,38 @@ def run_backtest(
             if fill is not None:
                 fills.append(fill)
                 fees_paid += Decimal(fill.fee)
+                if fill.side == "BUY":
+                    entry_price = Decimal(fill.price)
+                elif quantity == ZERO:
+                    entry_price = None
             pending_target = None
+
+        # A resting virtual stop is checked against the candle low. A gap below
+        # the trigger fills at the open, never at the better trigger price.
+        # This is an OHLC research approximation, not an actual exchange order.
+        if quantity > ZERO and entry_price is not None and settings.stop_loss_pct is not None:
+            stop_price = entry_price * (ONE - settings.stop_loss_pct / Decimal("100"))
+            if candle.low <= stop_price:
+                raw_exit = min(candle.open, stop_price)
+                exit_price = raw_exit * (ONE - market_impact)
+                notional = quantity * exit_price
+                fee = notional * fee_rate
+                fills.append(
+                    Fill(
+                        side="STOP_SELL",
+                        time=candle.open_time.isoformat(),
+                        quantity=str(quantity),
+                        price=str(exit_price),
+                        notional=str(notional),
+                        fee=str(fee),
+                    )
+                )
+                cash += notional - fee
+                fees_paid += fee
+                quantity = ZERO
+                entry_price = None
+                stopped_out = True
+                stop_exits += 1
 
         close_price = candle.close
         equity = cash + quantity * close_price
@@ -184,9 +224,13 @@ def run_backtest(
                 halt_reason = signal.risk_reason
             pending_target = ZERO
         else:
-            pending_target = (
+            target = (
                 Decimal(signal.effective_target) if signal.effective_target is not None else None
             )
+            # Wait for the strategy to turn flat before another long entry.
+            if stopped_out and target == ZERO:
+                stopped_out = False
+            pending_target = ZERO if stopped_out else target
 
     ending_equity = cash + quantity * candles[-1].close
     total_return_pct = (ending_equity / settings.starting_cash - ONE) * Decimal("100")
@@ -203,6 +247,7 @@ def run_backtest(
         risk_halted=halted,
         risk_halt_reason=halt_reason,
         fees_paid=str(fees_paid),
+        stop_exits=stop_exits,
         ending_cash=str(cash),
         ending_base_quantity=str(quantity),
         fills=tuple(fills),
@@ -244,7 +289,7 @@ def rebalance_spot(
     current_equity = cash + quantity * raw_price
     target_quantity = current_equity * target_weight / raw_price
     difference = target_quantity - quantity
-    if difference == ZERO:
+    if abs(difference) <= max(Decimal("1e-24"), abs(quantity) * Decimal("1e-22")):
         return cash, quantity, None
 
     if difference > ZERO:

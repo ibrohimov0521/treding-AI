@@ -2,6 +2,12 @@
 
 Yangilangan reja: 2026-10-05. Bu hujjat `AI_Trading_Master_Prompt.txt` dagi 0–11 bosqichlarni saqlaydi. Boshlang‘ich bozor — Binance Spot BTCUSDT; signal, backtest, shadow va paper bosqichlari real order yubormaydi.
 
+TradingView namunasi `BITSTAMP:BTCUSD` 1m: hozirgi Binance `BTCUSDT`
+ma'lumoti bilan bir xil narx yoki fee emas. Aynan shu grafikka mos signal
+uchun Bitstamp BTCUSD public adapteri, o'z fee modeli va alohida sinov kerak.
+Paper ishini keyingi bosqichda mavjud Dockploy loyihalaridan alohida servisga
+ko'chiramiz; [Dockploy qo'llanmasi](DOCKPLOY_DEPLOY.md).
+
 ## Hozirgi holat
 
 - Public REST 1m yopilgan candle’lari har 15 soniyada tekshiriladi; virtual paper worker systemd orqali ishlaydi.

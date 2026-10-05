@@ -1,0 +1,12 @@
+exchange: bitstamp
+market_type: spot
+symbol: BTCUSD
+base_asset: BTC
+quote_asset: USD
+raw_timeframe: 1m
+derived_timeframes:
+  - 5m
+  - 15m
+  - 1h
+timezone: UTC
+live_trading: false

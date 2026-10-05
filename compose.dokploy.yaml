@@ -1,0 +1,29 @@
+services:
+  paper-shadow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /home/javohir/dev/trading-platform/data:/app/data
+    command:
+      - trading-platform
+      - paper
+      - --symbol
+      - BTCUSDT
+      - --interval
+      - 1m
+      - --follow
+      - --poll-seconds
+      - "15"
+      - --state-file
+      - /app/data/paper/dockploy-shadow/state.json
+      - --audit-file
+      - /app/data/audit/dockploy-shadow/events.jsonl

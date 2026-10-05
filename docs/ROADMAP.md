@@ -2,6 +2,10 @@
 
 Tezkor signal yetkazish va qolgan ishlarning batafsil tartibi:
 [SIGNAL_DELIVERY_PLAN.md](SIGNAL_DELIVERY_PLAN.md).
+2024 yil yanvar–mart virtual baseline natijalari:
+[RESEARCH_BASELINE_2024Q1.md](RESEARCH_BASELINE_2024Q1.md).
+Dockploy ishga tushirish tartibi: [DOCKPLOY_DEPLOY.md](DOCKPLOY_DEPLOY.md).
+Avtonom model va disk o'sishining gate'lari: [AI_DECISION_GATES.md](AI_DECISION_GATES.md).
 
 Platforma keyingi bosqichga faqat oldingi bosqich natijasi tekshirilgach o‘tadi.
 Hozir loyiha Binance Spot BTCUSDT public ma’lumotlarida research, backtest va
