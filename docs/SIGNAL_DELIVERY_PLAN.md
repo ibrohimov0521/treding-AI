@@ -1,6 +1,6 @@
 # BTCUSDT signal yetkazish va qolgan loyiha ishlari
 
-Yangilangan reja: 2026-10-05. Bu hujjat `AI_Trading_Master_Prompt.txt` dagi 0–11 bosqichlarni saqlaydi. Boshlang‘ich bozor — Binance Spot BTCUSDT; signal, backtest, shadow va paper bosqichlari real order yubormaydi.
+Yangilangan reja: 2026-10-06. Bu hujjat `AI_Trading_Master_Prompt.txt` dagi 0–11 bosqichlarni saqlaydi. Boshlang‘ich bozor — Binance Spot BTCUSDT; signal, backtest, shadow va paper bosqichlari real order yubormaydi.
 
 TradingView namunasi `BITSTAMP:BTCUSD` 1m: hozirgi Binance `BTCUSDT`
 ma'lumoti bilan bir xil narx yoki fee emas. Aynan shu grafikka mos signal
