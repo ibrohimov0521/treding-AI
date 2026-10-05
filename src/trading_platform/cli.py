@@ -24,6 +24,7 @@ from trading_platform.market_data.downloader import HistoricalDownloader
 from trading_platform.market_data.resampling import resample_candles
 from trading_platform.ml.dataset import build_labeled_dataset
 from trading_platform.ml.walkforward import evaluate_walk_forward
+from trading_platform.observability.audit import AuditLog
 from trading_platform.paper.engine import HISTORY_LIMIT, PaperTrader, PaperUpdate
 from trading_platform.risk.engine import RiskLimits
 from trading_platform.storage.parquet import ParquetCandleStorage
@@ -296,6 +297,15 @@ def backtest(
     slippage_bps: float = typer.Option(
         5.0, min=0.0, max=9_999.0, help="Per-side slippage in basis points."
     ),
+    max_daily_loss_pct: float = typer.Option(
+        2.0, min=0.01, max=100.0, help="Latch a halt at this daily loss percentage."
+    ),
+    max_drawdown_pct: float = typer.Option(
+        8.0, min=0.01, max=100.0, help="Latch a halt at this peak drawdown percentage."
+    ),
+    max_exposure: float = typer.Option(
+        1.0, min=0.0, max=1.0, help="Maximum long Spot exposure as a fraction of equity."
+    ),
     config: Path = typer.Option(DEFAULT_CONFIG, "--config", help="Market YAML configuration."),
     data_dir: Path | None = typer.Option(None, "--data-dir", help="Override data directory."),
 ) -> None:
@@ -329,6 +339,11 @@ def backtest(
                 spread_bps=Decimal(str(spread_bps)),
                 slippage_bps=Decimal(str(slippage_bps)),
             ),
+            risk_limits=RiskLimits(
+                max_daily_loss_pct=Decimal(str(max_daily_loss_pct)),
+                max_drawdown_pct=Decimal(str(max_drawdown_pct)),
+                max_exposure=Decimal(str(max_exposure)),
+            ),
         )
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -354,6 +369,9 @@ def backtest(
         "fee_bps": str(Decimal(str(fee_bps))),
         "spread_bps_full": str(Decimal(str(spread_bps))),
         "slippage_bps_per_side": str(Decimal(str(slippage_bps))),
+        "max_daily_loss_pct": str(Decimal(str(max_daily_loss_pct))),
+        "max_drawdown_pct": str(Decimal(str(max_drawdown_pct))),
+        "max_exposure": str(Decimal(str(max_exposure))),
         "live_orders": False,
     }
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -537,6 +555,9 @@ def paper_command(
     state_file: Path | None = typer.Option(
         None, "--state-file", help="Paper checkpoint path; defaults under data/paper/."
     ),
+    audit_file: Path | None = typer.Option(
+        None, "--audit-file", help="Hash-chained audit JSONL path; defaults under data/audit/."
+    ),
     follow: bool = typer.Option(
         False, "--follow", help="Keep polling and processing closed candles."
     ),
@@ -561,6 +582,19 @@ def paper_command(
         / timeframe.value
         / "state.json"
     )
+    audit_path = audit_file or (
+        settings.data_dir
+        / "audit"
+        / market.exchange.lower()
+        / market.market_type.value
+        / market_symbol
+        / timeframe.value
+        / "events.jsonl"
+    )
+    try:
+        audit = AuditLog(audit_path)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     backtest_config = BacktestConfig(
         starting_cash=Decimal(str(starting_cash)),
         fee_bps=Decimal(str(fee_bps)),
@@ -628,7 +662,7 @@ def paper_command(
                     except ValueError as exc:
                         raise TradingPlatformError(str(exc)) from exc
                     trader.save(checkpoint)
-                    _emit_paper_update(bootstrap_update)
+                    _emit_paper_update(bootstrap_update, audit)
                 else:
                     for candle in candles:
                         try:
@@ -637,7 +671,7 @@ def paper_command(
                             raise TradingPlatformError(str(exc)) from exc
                         if processed_update is not None:
                             trader.save(checkpoint)
-                            _emit_paper_update(processed_update)
+                            _emit_paper_update(processed_update, audit)
                 if not follow:
                     return
                 await asyncio.sleep(poll_seconds)
@@ -645,10 +679,34 @@ def paper_command(
     configure_logging()
     _run(run())
     typer.echo(f"Paper state: {checkpoint}")
+    typer.echo(f"Audit log: {audit_path}")
 
 
-def _emit_paper_update(update: PaperUpdate) -> None:
-    typer.echo(json.dumps({**update.to_dict(), "live_orders": False}))
+def _emit_paper_update(update: PaperUpdate, audit: AuditLog) -> None:
+    record = audit.append("paper_update", {"update": update.to_dict(), "live_orders": False})
+    typer.echo(
+        json.dumps(
+            {
+                **update.to_dict(),
+                "live_orders": False,
+                "audit_sequence": record["sequence"],
+                "audit_hash": record["event_hash"],
+            }
+        )
+    )
+
+
+@app.command("audit-verify")
+def audit_verify_command(
+    path: Path = typer.Argument(..., help="Hash-chained JSONL audit file."),
+) -> None:
+    """Verify event sequence and every SHA-256 link in an audit file."""
+    try:
+        result = AuditLog.verify(path)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(f"Verified audit events: {result.event_count}")
+    typer.echo(f"Last hash: {result.last_hash}")
 
 
 def main() -> None:

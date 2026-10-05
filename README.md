@@ -1,4 +1,4 @@
-# Trading Platform — Phase 0–9
+# Trading Platform — research va paper bosqichlari
 
 > **Safety: this project does not send real orders.** The implementation downloads
 > public Binance Spot data, builds causal features and ML research datasets, runs
@@ -120,6 +120,7 @@ uv run trading-platform walk-forward --symbol BTCUSDT --interval 1m \
   --horizon 5 --min-train-rows 1000 --test-rows 500
 uv run trading-platform paper --symbol BTCUSDT --interval 1m
 uv run trading-platform paper --symbol BTCUSDT --interval 1m --follow
+uv run trading-platform audit-verify data/audit/binance/spot/BTCUSDT/1m/events.jsonl
 uv run pytest
 uv run ruff check .
 uv run mypy
@@ -148,9 +149,16 @@ datasetga yozadi. `walk-forward` vaqt tartibini saqlagan purged train/test fold�
 bilan baseline modelni tekshiradi; bu buyruq uchun `uv sync --dev --extra ml`
 kerak. `paper` faqat public candle’larni yuklaydi, keyingi candle open’da virtual
 fill simulyatsiya qiladi va holatni checkpoint’ga yozadi. `--follow` jarayonni
-terminalda uzluksiz ishlatadi. Risk limiti yetganda virtual target nolga tushadi va
-mavjud virtual pozitsiya keyingi candle’da yopiladi. Paper hisob real birja balansiga
-ulanmaydi va order yubormaydi.
+terminalda uzluksiz ishlatadi. Backtest va paper bir xil signal/risk qatlamidan
+foydalanadi; har bir qaror uchun takrorlanuvchi signal ID va feature hash yaratiladi.
+Risk limiti yetganda virtual target nolga tushadi va mavjud virtual pozitsiya keyingi
+candle’da yopiladi. Paper hisob real birja balansiga ulanmaydi va order yubormaydi.
+
+Paper yangilanishlari `data/audit/<exchange>/<market>/<symbol>/<timeframe>/events.jsonl`
+fayliga SHA-256 hash chain bilan yoziladi. Auditni `audit-verify` tekshiradi; zanjir
+log o‘rtasidagi o‘zgarishlarni aniqlaydi, lekin imzolangan tashqi backup o‘rnini
+bosmaydi. `docs/ROADMAP.md` bajarilgan, qisman tayyor va hali bloklangan bosqichlarni
+ajratadi. Shadow, paper gate va real execution tayyor deb hisoblanmaydi.
 
 ```bash
 uv run trading-platform resample --from 1m --to 5m
@@ -173,6 +181,7 @@ data/
 ├── raw/binance/spot/BTCUSDT/1m/year=2024/month=01/candles.parquet
 ├── processed/binance/spot/BTCUSDT/5m/year=2024/month=01/candles.parquet
 ├── features/binance/spot/BTCUSDT/1m/features.parquet
+├── audit/binance/spot/BTCUSDT/1m/events.jsonl
 └── reports/binance/spot/BTCUSDT/1m/quality.json
 ```
 

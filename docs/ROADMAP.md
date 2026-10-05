@@ -1,64 +1,56 @@
-# Development roadmap
+# Loyiha roadmap’i
 
-Platforma har bosqich o‘lchanib tekshirilgandan keyin kengayadi. Ushbu repository
-hozir **Phase 0–9**ni bajaradi; real exchange orderlari hali yo‘q.
+Platforma keyingi bosqichga faqat oldingi bosqich natijasi tekshirilgach o‘tadi.
+Hozir loyiha Binance Spot BTCUSDT public ma’lumotlarida research, backtest va
+virtual paper hisobni bajaradi. Birjaga order yuboradigan kod yo‘q.
 
-| Phase | Maqsad | Holat |
+| Bosqich | Maqsad | Holat |
 | --- | --- | --- |
-| 0 — Foundation | Project tuzilmasi, config, domain, logging, test/lint va safety poydevori | Tayyor |
-| 1 — Market data | Binance Spot public 1m, incremental Parquet, validation, resampling | Tayyor; real yuklash bilan tekshirildi |
-| 2 — Feature engineering | Faqat yopilgan candle’larga asoslangan deterministic feature’lar | Tayyor: returns, EMA, RSI, ATR, volatility, volume va candle range |
-| 3 — Baseline strategies | Sodda, izohlash mumkin bo‘lgan benchmark strategiyalar | Tayyor: EMA-12/26 long/flat; signal, order emas |
-| 4 — Backtesting engine | Event-time fill, fee, spread, slippage; kelajak ma’lumotlarisiz | Tayyor: next-open fill, spot long-only; tarixiy smoke-test qilingan |
-| 5 — ML dataset | Aniq label va vaqt bo‘yicha ajratilgan train/validation/test | Tayyor: forward return label, vaqtli purge |
-| 6 — ML models | Avval baseline modellar; probability calibration | Tayyor: StandardScaler + LogisticRegression baseline; calibration yo‘q |
-| 7 — Walk-forward validation | Out-of-sample tekshiruv va market regime tahlili | Tayyor: expanding folds, purged label horizon, baseline metrics |
-| 8 — Paper trading | Real bozorni kuzatish, virtual pozitsiyalar; order yo‘q | Tayyor: public closed candles, restartable virtual Spot, `paper --follow` |
-| 9 — Risk engine | Position sizing, loss/drawdown limitlari, mustaqil approval | Tayyor: exposure cap, kunlik zarar va peak drawdown halt |
-| 10 — Exchange execution | Authenticated adapter va test muhitini tekshirish | TODO; o‘chiq qoladi |
-| 11 — Controlled live trading | Ko‘p bosqichli ruxsat, kichik limit, monitoring, kill switch | TODO |
+| 0 — Scope va poydevor | Talablar, universal market modeli, config, log va test infratuzilmasi | Tayyor |
+| 1 — Data | Public Spot candle’larini yuklash, saqlash, incremental davom ettirish | Tayyor; kichik real yuklash tekshirilgan |
+| 2 — Data sifati va EDA | Validatsiya, gap/duplicate tekshiruvi, tavsifiy tahlil | Validatsiya tayyor; to‘liq EDA hisoboti qolgan |
+| 3 — Baseline va backtest | EMA benchmark, next-open fill, komissiya/spread/slippage, risk cheklovlari | Asosiy oqim tayyor; kengroq metrikalar va mustaqil tekshiruv qolgan |
+| 4 — ML va walk-forward | Label, vaqtli split, baseline model va leakage’dan himoyalangan sinov | LogisticRegression va expanding walk-forward bor; kalibratsiya, untouched holdout va regime tahlili qolgan |
+| 5 — Signal va risk | Backtest/paper’da umumiy signal qarori va mustaqil exposure/loss limitlari | Tayyor; signal ID va feature hash qo‘shilgan |
+| 6 — Paper execution | Virtual order holati, fill, restart va reconciliation | Virtual portfolio/checkpoint bor; order lifecycle, partial fill va reconciliation qolgan |
+| 7 — Monitoring va audit | Kuzatuv, o‘zgartirishni aniqlaydigan log, ogohlantirish va dashboard | Hash-zanjirli JSONL audit hamda `audit-verify` tayyor; dashboard/alert qolgan |
+| 8 — Shadow | Jonli public data’da signal hisoblash, order yubormaslik | TODO |
+| 9 — Paper gate | Yetarli muddatli paper natijasi va risk/reconciliation tekshiruvi | TODO; gate hali o‘tmagan |
+| 10 — Micro-live | Alohida ruxsat va qat’iy limit bilan minimal real savdo | TODO; hozircha o‘chiq va order yo‘li mavjud emas |
+| 11 — Scale | Faqat uzoq muddatli dalildan keyin ko‘lamni bosqichma-bosqich oshirish | TODO |
 
-## Phase 0–1 bajarilganini tasdiqlovchi shartlar
+## Hozirgi ishlaydigan oqim
 
-- Public API orqali kichik tarixiy yuklash bajariladi.
-- `--start` bermay qayta ishga tushirish faqat keyingi yopilgan candle’larni qo‘shadi.
-- Avvalgi vaqtni backfill qilish duplicate `open_time` qatorlarini yaratmaydi.
-- Validator ma’lum gapni timestamp bilan ko‘rsatadi.
-- 1m→5m, 1m→15m va 1m→1h faqat to‘liq guruhlarni chiqaradi.
-- Takroriy ishga tushirishlarda Parquet qiymatlari va quality report bir xil qoladi.
-- Avtomatik testlar va static checks muvaffaqiyatli o‘tadi.
-- Phase 0–9’da order/account yo‘li yo‘q; `live_trading: true` config’da rad etiladi.
+```text
+Public Spot candle → validation → causal features → strategy signal
+                                                   ↓
+                                          shared risk approval
+                                                   ↓
+                                     backtest / virtual paper state
+                                                   ↓
+                                      hash-chained audit record
+```
 
-## Hozirgi Phase 2–9 chegaralari
+Paper rejim public yopilgan candle’lardan foydalanadi; fill’lar virtual va keyingi
+candle open’da simulyatsiya qilinadi. `data/audit/.../events.jsonl` har bir paper
+yangilanishini zanjirlangan SHA-256 hash bilan yozadi. Bu logni o‘zgartirishni
+aniqlashga yordam beradi, lekin imzolangan yoki tashqi append-only saqlash o‘rnini
+bosmaydi. Auditni `trading-platform audit-verify <fayl>` bilan tekshirish mumkin.
 
-- Feature hisoblash bitta tartiblangan market series’ni talab qiladi; warm-up qatorlari
-  `null` bo‘lib qoladi. `ready` asosiy indikatorlar tayyor bo‘lganda `true`.
-- EMA benchmark 0–100% long-only exposure beradi. Bu taqqoslash strategiyasi bo‘lib,
-  foyda yoki barqaror edge kafolati emas.
-- Backtest bitta spot qatoridagi candle’lar uzluksiz bo‘lishini talab qiladi.
-  Signal `t` candle yopilgach yaratiladi va `t+1` open’da fill qilinadi.
-- Fee, spread va slippage doimiy bps taxminlari; partial fill, order-book impact,
-  fee tier, latency, exchange outage va dynamic market impact yo‘q.
-- Qisqa smoke-test moliyaviy xulosa yoki model tanlash uchun ishlatilmaydi.
-- ML baseline optional `ml` dependency talab qiladi; ehtimollar kalibrlanmagan va signal
-  mustaqil savdo edge’i sifatida tasdiqlanmagan.
-- Paper engine yopilgan public candle’larni virtual hisobga qo‘llaydi. Signal keyingi
-  candle open’da taxminiy fill qilinadi; partial fill, order-book va exchange execution yo‘q.
-- Risk halt latched bo‘ladi, yangi targetni nolga tushiradi va keyingi candle open’da
-  virtual pozitsiyani yopishni rejalaydi. Qayta boshlashdan oldin holatni qo‘lda ko‘rib
-  chiqish kerak.
-- `paper --follow` terminal jarayoni sifatida ishlaydi; server qayta yuklanganda
-  avtomatik ishga tushirish alohida process supervisor sozlamasini talab qiladi.
+## Hali bajariladigan xavfsiz ishlar
 
-## Kelgusi quant bosqichlari uchun qoidalar
+1. Data sifati va EDA uchun eksport qilinadigan hisobot qo‘shish.
+2. Backtest natijalariga benchmark, turnover, exposure, risk va cost tahlilini qo‘shish;
+   holdout davrini tuning’dan ajratish.
+3. Paper adapterida virtual order holati, restart recovery va reconciliation’ni
+   yakunlash; audit/checkpoint xatolarini idempotent tiklash.
+4. Dashboard/alert va order yubormaydigan shadow rejimini qo‘shish.
+5. Yetarli davomiy paper dalili to‘plangandan keyingina Phase 9 gate’ni ko‘rib chiqish.
 
-- **Look-ahead bias:** `t` vaqtidagi feature `t` dan keyin yopiladigan candle’ni
-  ishlatmasin. Qaror faqat o‘sha paytda mavjud bo‘lgan ma’lumotga tayanadi.
-- **Data leakage:** transform’larni faqat train oynasida fit qiling. Train,
-  validation va test davrlari vaqt bo‘yicha ajralgan bo‘lishi kerak.
-- **Survivorship bias:** ko‘p asset’ga o‘tganda tarixiy universe’ni va delist qilingan
-  aktivlarni ham hisobga oling.
-- **Overfitting:** parameter/model qidiruvini cheklang; yakuniy test va walk-forward
-  davrlarini tuning uchun ishlatmang; sinovlar sonini qayd qiling.
-- **Transaction cost:** simulyatsiya commission, spread va slippage’ni hisoblaydi;
-  keyingi bosqichlarda dynamic spread, fee tier va fill uncertainty qo‘shilishi kerak.
+## Real savdo uchun bloklovchi shartlar
+
+Real savdo hozir yoqilmaydi. Kelgusida ham Phase 9 natijasi tasdiqlanmasdan
+authenticated execution qo‘shilmaydi. Alohida ruxsat, alohida credential, withdrawal
+huquqisiz API key, qat’iy order/kunlik limit, kill switch, monitoring, audit va
+account bilan reconciliation talab qilinadi. Hech bir config flag real savdoni o‘zi
+yoqmasligi kerak.

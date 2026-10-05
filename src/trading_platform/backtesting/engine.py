@@ -7,6 +7,8 @@ from decimal import Decimal
 from trading_platform.core.enums import MarketType
 from trading_platform.domain.candle import Candle
 from trading_platform.features.engineering import compute_features
+from trading_platform.risk.engine import RiskEngine, RiskLimits
+from trading_platform.signals.engine import SignalEngine
 from trading_platform.strategies.base import TargetExposureStrategy
 
 ZERO = Decimal("0")
@@ -68,6 +70,8 @@ class BacktestResult:
     ending_equity: str
     total_return_pct: str
     max_drawdown_pct: str
+    risk_halted: bool
+    risk_halt_reason: str | None
     fees_paid: str
     ending_cash: str
     ending_base_quantity: str
@@ -89,6 +93,8 @@ def run_backtest(
     candles: list[Candle],
     strategy: TargetExposureStrategy,
     config: BacktestConfig | None = None,
+    *,
+    risk_limits: RiskLimits | None = None,
 ) -> BacktestResult:
     """Simulate a strategy over one complete, contiguous spot candle series.
 
@@ -100,6 +106,9 @@ def run_backtest(
     if len(candles) < 2:
         raise ValueError("Backtest requires at least two candles")
     settings = config or BacktestConfig()
+    limits = risk_limits or RiskLimits()
+    risk_engine = RiskEngine(limits)
+    signal_engine = SignalEngine(risk_engine)
     _validate_series(candles)
     if candles[0].market_type != MarketType.SPOT:
         raise ValueError("This backtest implementation supports Spot markets only")
@@ -118,6 +127,10 @@ def run_backtest(
     equity_curve: list[EquityPoint] = []
     peak_equity = settings.starting_cash
     max_drawdown = ZERO
+    daily_utc_date = candles[0].open_time.date().isoformat()
+    daily_start_equity = settings.starting_cash
+    halted = False
+    halt_reason: str | None = None
     fee_rate = settings.fee_bps / BPS
     market_impact = settings.spread_bps / Decimal("20000") + settings.slippage_bps / BPS
 
@@ -134,6 +147,7 @@ def run_backtest(
             if fill is not None:
                 fills.append(fill)
                 fees_paid += Decimal(fill.fee)
+            pending_target = None
 
         close_price = candle.close
         equity = cash + quantity * close_price
@@ -146,15 +160,33 @@ def run_backtest(
                 equity=str(equity),
             )
         )
+        utc_date = candle.open_time.date().isoformat()
+        if utc_date != daily_utc_date:
+            daily_utc_date = utc_date
+            daily_start_equity = equity
         peak_equity = max(peak_equity, equity)
         if peak_equity > ZERO:
             max_drawdown = max(max_drawdown, ONE - equity / peak_equity)
 
-        target = strategy.target_exposure(feature)
-        if target is not None:
-            if not ZERO <= target <= ONE:
-                raise ValueError("Strategy target exposure must be between 0 and 1 for Spot")
-            pending_target = target
+        current_exposure = min(ONE, quantity * close_price / equity) if equity > ZERO else ZERO
+        signal = signal_engine.evaluate(
+            feature,
+            strategy,
+            current_exposure=current_exposure,
+            equity=equity,
+            daily_start_equity=daily_start_equity,
+            peak_equity=peak_equity,
+            already_halted=halted,
+        )
+        if signal.status == "HALTED":
+            halted = True
+            if halt_reason is None:
+                halt_reason = signal.risk_reason
+            pending_target = ZERO
+        else:
+            pending_target = (
+                Decimal(signal.effective_target) if signal.effective_target is not None else None
+            )
 
     ending_equity = cash + quantity * candles[-1].close
     total_return_pct = (ending_equity / settings.starting_cash - ONE) * Decimal("100")
@@ -168,6 +200,8 @@ def run_backtest(
         ending_equity=str(ending_equity),
         total_return_pct=str(total_return_pct),
         max_drawdown_pct=str(max_drawdown * Decimal("100")),
+        risk_halted=halted,
+        risk_halt_reason=halt_reason,
         fees_paid=str(fees_paid),
         ending_cash=str(cash),
         ending_base_quantity=str(quantity),

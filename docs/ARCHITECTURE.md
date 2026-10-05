@@ -15,8 +15,11 @@ DataQualityReport
           ↓
 Resampling → processed Parquet (5m / 15m / 1h)
           ↓
-Causal features → EMA-12/26 target exposure → Backtest simulator
-                                          (next-candle-open fills; no orders)
+Causal features → EMA-12/26 strategy → SignalEngine → RiskEngine
+                                             ↓
+                              Backtest / virtual PaperTrader
+                                             ↓
+                              Hash-chained paper audit log
 ```
 
 `MarketDataProvider` — birjadan mustaqil interfeys. Hozir faqat
@@ -38,8 +41,12 @@ formatini bilishi shart bo‘lmaydi.
 | `market_data/resampling.py` | To‘liq UTC 1m guruhlaridan candle aggregation |
 | `features/engineering.py` | Causal returns, EMA, RSI, ATR, volatility va volume feature’lari |
 | `strategies/moving_average.py` | EMA-12/26 long/flat benchmark signali |
-| `backtesting/engine.py` | Spot long-only simulator, next-open fills, fee/spread/slippage |
-| `cli.py` | Data, validation, features va backtest buyruqlari; live execution yo‘q |
+| `signals/engine.py` | Backtest va paper uchun umumiy signal, takrorlanuvchi ID va feature hash |
+| `risk/engine.py` | Spot exposure cap, kunlik zarar va drawdown halt |
+| `backtesting/engine.py` | Spot long-only simulator, umumiy risk oqimi, next-open fills va cost |
+| `paper/engine.py` | Virtual Spot balans, checkpoint va yopilgan candle’larni qayta ishlash |
+| `observability/audit.py` | Ketma-ketlik va SHA-256 hash zanjirini tekshiradigan JSONL audit |
+| `cli.py` | Data, backtest, paper va `audit-verify` buyruqlari; live execution yo‘q |
 
 ## Parquet data modeli
 
@@ -68,23 +75,37 @@ takroriy so‘rovlar bo‘lmasligi uchun download to‘xtaydi. HTTP 429/418 javo
 soni chegaralangan exponential backoff ishlaydi. Binance hujjatiga ko‘ra rate limit
 oshirilganda 429, qayta-qayta cheklovni buzishda esa 418 qaytishi mumkin.
 
+## Signal, risk va audit oqimi
+
+`SignalEngine` strategiya targetini hisoblaydi va har candle’da `RiskEngine`dan
+mustaqil qaror oladi. Backtest va paper bir xil risk qoidasini ishlatadi: Spot exposure
+0–1 oralig‘ida qoladi; daily loss yoki peak drawdown limitiga yetganda halt latched
+bo‘lib target nol qilinadi. Qarorda feature hash, signal ID, so‘ralgan va tasdiqlangan
+target hamda risk holati saqlanadi.
+
+Paper CLI har bir checkpoint yangilanishiga audit event yozadi. Eventlar JSONL’da
+ketma-ket raqam va oldingi event hash’i bilan bog‘lanadi; `audit-verify` yozuvlar
+ketma-ketligi va hash’larini qayta hisoblaydi. Bu zanjir o‘rtadagi o‘zgarish va chala
+oxirgi yozuvni aniqlaydi. U imzo emas; serverdagi faylni to‘liq almashtira oladigan
+shaxsdan himoya qilmaydi. Hozir audit va checkpoint alohida faylga yoziladi, shu bois
+process yoki disk xatosi atrofidagi tiklanish Phase 6’da yanada mustahkamlanishi kerak.
+
 ## Kelajakdagi komponentlar
 
-Quyidagilar **TODO/FUTURE**, Phase 0–9’da hali kodlanmagan:
+Quyidagilar **TODO/FUTURE**:
 
 ```text
-Validated processed data
- → Label/dataset va vaqt bo‘yicha split (tayyor)
- → LogisticRegression baseline va purged walk-forward (tayyor; optional ML extra)
- → Paper-trading engine va restartable checkpoint (tayyor; virtual pozitsiya)
- → Risk engine (tayyor; exposure, daily loss, drawdown)
- → Authenticated execution adapter (TODO; alohida ruxsat va gate talab qiladi)
+EDA hisoboti, untouched holdout va model kalibratsiyasi
+ → Paper virtual order lifecycle, partial-fill simulyatsiyasi va reconciliation
+ → Dashboard, monitoring ogohlantirishlari va order yubormaydigan shadow rejimi
+ → Yetarli paper dalilidan keyin gate review
+ → Faqat alohida ruxsatdan keyin authenticated execution (hozir mavjud emas)
 ```
 
-Hozirgi EMA benchmark long/flat target exposure chiqaradi; simulator signalni candle
-yopilgach oladi va keyingi candle ochilishida taxminiy fill qiladi. Paper engine
-public yopilgan candle’larni virtual hisobga qo‘llaydi, holatni atomik checkpoint’da
-saqlaydi va risk limitida targetni nolga tushiradi. Binance’ga order yuborilmaydi.
+Hozirgi EMA benchmark long/flat target exposure chiqaradi; signal candle yopilgach
+hisoblanadi, simulyatsion fill esa keyingi candle ochilishida qo‘llanadi. Paper engine
+public yopilgan candle’larni virtual hisobga qo‘llaydi va holatni atomik checkpoint’da
+saqlaydi. Binance’ga order yuborilmaydi.
 
 ## Xavfsizlik qoidalari
 

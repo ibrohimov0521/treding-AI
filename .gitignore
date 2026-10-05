@@ -11,10 +11,12 @@ data/features/**
 data/datasets/**
 data/reports/**
 data/paper/**
+data/audit/**
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/features/.gitkeep
 !data/datasets/.gitkeep
 !data/reports/.gitkeep
 !data/paper/.gitkeep
+!data/audit/.gitkeep
 *.log

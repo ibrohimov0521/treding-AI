@@ -3,6 +3,7 @@ from decimal import Decimal
 import pytest
 
 from trading_platform.backtesting.engine import BacktestConfig, run_backtest
+from trading_platform.risk.engine import RiskLimits
 
 
 class AlwaysLong:
@@ -96,3 +97,29 @@ def test_backtest_config_rejects_unusable_costs() -> None:
         BacktestConfig(starting_cash=Decimal("0"))
     with pytest.raises(ValueError, match="fee_bps"):
         BacktestConfig(fee_bps=Decimal("10000"))
+
+
+def test_backtest_uses_shared_risk_engine_and_flattens_after_halt(candle_factory) -> None:
+    candles = [
+        candle_factory(0, open_price="10", high="11", low="9", close="10"),
+        candle_factory(1, open_price="10", high="11", low="9", close="10"),
+        candle_factory(2, open_price="10", high="11", low="9", close="9"),
+        candle_factory(3, open_price="9", high="10", low="8", close="9"),
+    ]
+
+    result = run_backtest(
+        candles,
+        AlwaysLong(),
+        BacktestConfig(
+            starting_cash=Decimal("1000"),
+            fee_bps=Decimal("0"),
+            spread_bps=Decimal("0"),
+            slippage_bps=Decimal("0"),
+        ),
+        risk_limits=RiskLimits(max_daily_loss_pct=Decimal("2")),
+    )
+
+    assert result.risk_halted is True
+    assert result.risk_halt_reason == "maximum daily loss reached"
+    assert result.fills[-1].side == "SELL"
+    assert Decimal(result.ending_base_quantity) == 0

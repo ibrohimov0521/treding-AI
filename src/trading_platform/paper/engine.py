@@ -13,6 +13,7 @@ from trading_platform.core.enums import MarketType, Timeframe
 from trading_platform.domain.candle import Candle
 from trading_platform.features.engineering import compute_features
 from trading_platform.risk.engine import RiskEngine, RiskLimits
+from trading_platform.signals.engine import SignalDecision, SignalEngine
 from trading_platform.strategies.base import TargetExposureStrategy
 
 ZERO = Decimal("0")
@@ -36,6 +37,7 @@ class PaperUpdate:
     halted: bool
     risk_reason: str | None
     fill: Fill | None
+    signal: SignalDecision | None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -70,6 +72,7 @@ class PaperTrader:
         self.config = config or BacktestConfig()
         self.risk_limits = risk_limits or RiskLimits()
         self.risk_engine = RiskEngine(self.risk_limits)
+        self.signal_engine = SignalEngine(self.risk_engine)
 
         self.cash = self.config.starting_cash
         self.base_quantity = ZERO
@@ -161,31 +164,32 @@ class PaperTrader:
         current_weight = (
             min(ONE, self.base_quantity * candle.close / equity) if equity > ZERO else ZERO
         )
-        signal_target = self.strategy.target_exposure(feature)
-        desired_for_risk = current_weight if signal_target is None else signal_target
-        decision = self.risk_engine.assess(
-            desired_target=desired_for_risk,
+        signal = self.signal_engine.evaluate(
+            feature,
+            self.strategy,
+            current_exposure=current_weight,
             equity=equity,
             daily_start_equity=self.daily_start_equity,
             peak_equity=self.peak_equity,
             already_halted=self.halted,
         )
-        if decision.halted:
+        if signal.status == "HALTED":
             self.halted = True
             if self.halt_reason is None:
-                self.halt_reason = decision.reason
+                self.halt_reason = signal.risk_reason
             self.pending_target = ZERO
-        elif signal_target is not None:
-            self.pending_target = decision.approved_target
+        elif signal.effective_target is not None:
+            self.pending_target = Decimal(signal.effective_target)
 
         return self._update(
             "PROCESSED",
             candle,
-            signal_target,
+            Decimal(signal.requested_target) if signal.requested_target is not None else None,
             self.pending_target,
-            decision.daily_loss_pct,
-            decision.drawdown_pct,
+            Decimal(signal.daily_loss_pct),
+            Decimal(signal.drawdown_pct),
             fill=fill,
+            signal=signal,
         )
 
     def snapshot(self) -> dict[str, object]:
@@ -329,6 +333,7 @@ class PaperTrader:
         drawdown_pct: Decimal,
         *,
         fill: Fill | None = None,
+        signal: SignalDecision | None = None,
     ) -> PaperUpdate:
         equity = self.cash + self.base_quantity * candle.close
         return PaperUpdate(
@@ -344,6 +349,7 @@ class PaperTrader:
             halted=self.halted,
             risk_reason=self.halt_reason,
             fill=fill,
+            signal=signal,
         )
 
 
