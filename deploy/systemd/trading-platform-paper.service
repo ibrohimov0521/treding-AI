@@ -1,0 +1,17 @@
+[Unit]
+Description=Trading Platform BTCUSDT virtual paper runner
+
+[Service]
+Type=simple
+WorkingDirectory=%h/dev/trading-platform
+ExecStart=%h/dev/trading-platform/.venv/bin/trading-platform paper --symbol BTCUSDT --interval 1m --follow --poll-seconds 15
+Restart=on-failure
+RestartSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

@@ -160,6 +160,25 @@ log o‘rtasidagi o‘zgarishlarni aniqlaydi, lekin imzolangan tashqi backup o�
 bosmaydi. `docs/ROADMAP.md` bajarilgan, qisman tayyor va hali bloklangan bosqichlarni
 ajratadi. Shadow, paper gate va real execution tayyor deb hisoblanmaydi.
 
+### Serverda uzluksiz paper worker
+
+Repository ichida user-level systemd unit bor. O‘rnatish `~/dev/trading-platform`
+yo‘lida:
+
+```bash
+mkdir -p ~/.config/systemd/user
+ln -sfn "$PWD/deploy/systemd/trading-platform-paper.service" \
+  ~/.config/systemd/user/trading-platform-paper.service
+systemctl --user daemon-reload
+systemctl --user enable --now trading-platform-paper.service
+systemctl --user status trading-platform-paper.service
+```
+
+Server logout yoki reboot’dan keyin ham user service’ni saqlash uchun administrator
+bir marta `sudo loginctl enable-linger "$USER"` bajaradi. Worker faqat public candle
+ma’lumotini oladi, virtual balansni yangilaydi va order yubormaydi. Jurnal:
+`journalctl --user -u trading-platform-paper.service -f`.
+
 ```bash
 uv run trading-platform resample --from 1m --to 5m
 uv run trading-platform features --interval 5m

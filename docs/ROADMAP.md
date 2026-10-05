@@ -12,7 +12,7 @@ virtual paper hisobni bajaradi. Birjaga order yuboradigan kod yo‘q.
 | 3 — Baseline va backtest | EMA benchmark, next-open fill, komissiya/spread/slippage, risk cheklovlari | Asosiy oqim tayyor; kengroq metrikalar va mustaqil tekshiruv qolgan |
 | 4 — ML va walk-forward | Label, vaqtli split, baseline model va leakage’dan himoyalangan sinov | LogisticRegression va expanding walk-forward bor; kalibratsiya, untouched holdout va regime tahlili qolgan |
 | 5 — Signal va risk | Backtest/paper’da umumiy signal qarori va mustaqil exposure/loss limitlari | Tayyor; signal ID va feature hash qo‘shilgan |
-| 6 — Paper execution | Virtual order holati, fill, restart va reconciliation | Virtual portfolio/checkpoint bor; order lifecycle, partial fill va reconciliation qolgan |
+| 6 — Paper execution | Virtual order holati, fill, restart va reconciliation | Virtual portfolio/checkpoint hamda restartda davom etuvchi systemd worker bor; order lifecycle, partial fill va reconciliation qolgan |
 | 7 — Monitoring va audit | Kuzatuv, o‘zgartirishni aniqlaydigan log, ogohlantirish va dashboard | Hash-zanjirli JSONL audit hamda `audit-verify` tayyor; dashboard/alert qolgan |
 | 8 — Shadow | Jonli public data’da signal hisoblash, order yubormaslik | TODO |
 | 9 — Paper gate | Yetarli muddatli paper natijasi va risk/reconciliation tekshiruvi | TODO; gate hali o‘tmagan |
@@ -31,8 +31,9 @@ Public Spot candle → validation → causal features → strategy signal
                                       hash-chained audit record
 ```
 
-Paper rejim public yopilgan candle’lardan foydalanadi; fill’lar virtual va keyingi
-candle open’da simulyatsiya qilinadi. `data/audit/.../events.jsonl` har bir paper
+Paper worker systemd user service’da har 15 soniyada public yopilgan candle’larni
+tekshiradi; fill’lar virtual va keyingi candle open’da simulyatsiya qilinadi.
+`data/audit/.../events.jsonl` har bir paper
 yangilanishini zanjirlangan SHA-256 hash bilan yozadi. Bu logni o‘zgartirishni
 aniqlashga yordam beradi, lekin imzolangan yoki tashqi append-only saqlash o‘rnini
 bosmaydi. Auditni `trading-platform audit-verify <fayl>` bilan tekshirish mumkin.
