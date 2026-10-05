@@ -254,8 +254,16 @@ def rebalance_spot(
             return cash, quantity, None
         notional = buy_quantity * fill_price
         fee = notional * fee_rate
+        remaining_cash = cash - notional - fee
+        # Decimal division can round the affordability limit upward by a few
+        # ulps. Clamp only that arithmetic dust; a material overspend is a bug.
+        rounding_tolerance = max(Decimal("1e-28"), abs(cash) * Decimal("1e-24"))
+        if remaining_cash < ZERO:
+            if -remaining_cash > rounding_tolerance:
+                raise ArithmeticError("Simulated Spot buy exceeded available cash")
+            remaining_cash = ZERO
         return (
-            cash - notional - fee,
+            remaining_cash,
             quantity + buy_quantity,
             Fill(
                 side="BUY",

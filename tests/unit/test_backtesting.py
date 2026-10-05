@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from trading_platform.backtesting.engine import BacktestConfig, run_backtest
+from trading_platform.backtesting.engine import BacktestConfig, rebalance_spot, run_backtest
 from trading_platform.risk.engine import RiskLimits
 
 
@@ -82,6 +82,29 @@ def test_transaction_costs_reduce_backtest_equity(candle_factory) -> None:
     )
     assert Decimal(charged.ending_equity) < Decimal(free.ending_equity)
     assert Decimal(charged.fees_paid) > 0
+
+
+def test_full_spot_allocation_keeps_cash_nonnegative_with_costs(candle_factory) -> None:
+    candle = candle_factory(
+        0,
+        open_price="108000.12",
+        high="108100",
+        low="107900",
+        close="108020",
+    )
+    cash, quantity, fill = rebalance_spot(
+        candle,
+        Decimal("10000"),
+        Decimal("0"),
+        Decimal("1"),
+        Decimal("0.001"),
+        Decimal("0.0006"),
+    )
+
+    assert fill is not None
+    assert fill.side == "BUY"
+    assert quantity > 0
+    assert Decimal("0") <= cash < Decimal("1e-18")
 
 
 def test_backtest_rejects_gap_and_short_exposure(candle_factory) -> None:

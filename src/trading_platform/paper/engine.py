@@ -21,6 +21,7 @@ ONE = Decimal("1")
 HUNDRED = Decimal("100")
 HISTORY_LIMIT = 100
 STATE_VERSION = 1
+DECIMAL_ROUNDING_EPSILON = Decimal("1e-24")
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,7 +273,14 @@ class PaperTrader:
         self.fees_paid = _snapshot_decimal(snapshot, "fees_paid")
         self.daily_start_equity = _snapshot_decimal(snapshot, "daily_start_equity")
         self.peak_equity = _snapshot_decimal(snapshot, "peak_equity")
-        if self.cash < ZERO or self.base_quantity < ZERO or self.fees_paid < ZERO:
+        if self.cash < ZERO:
+            rounding_tolerance = max(
+                Decimal("1e-28"), self.config.starting_cash * DECIMAL_ROUNDING_EPSILON
+            )
+            if -self.cash > rounding_tolerance:
+                raise ValueError("Paper state cash cannot be negative")
+            self.cash = ZERO
+        if self.base_quantity < ZERO or self.fees_paid < ZERO:
             raise ValueError("Paper state balances and fees cannot be negative")
         if self.daily_start_equity <= ZERO or self.peak_equity <= ZERO:
             raise ValueError("Paper state risk reference equity must be positive")

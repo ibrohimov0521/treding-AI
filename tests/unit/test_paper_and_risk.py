@@ -78,6 +78,36 @@ def test_paper_state_round_trip_and_closed_candle_checkpoint(candle_factory, tmp
     assert restored.process_closed(candles[26]) is None
 
 
+def test_paper_restore_normalizes_decimal_rounding_dust_but_rejects_real_debt() -> None:
+    trader = _trader()
+    snapshot = trader.snapshot()
+    snapshot["cash"] = "-2.993e-24"
+    restored = PaperTrader(
+        exchange="BINANCE",
+        market_type=MarketType.SPOT,
+        symbol="BTCUSDT",
+        timeframe=Timeframe.ONE_MINUTE,
+        strategy=AlwaysLong(),
+        config=trader.config,
+        risk_limits=trader.risk_limits,
+        snapshot=snapshot,
+    )
+    assert restored.cash == 0
+
+    snapshot["cash"] = "-0.01"
+    with pytest.raises(ValueError, match="cash cannot be negative"):
+        PaperTrader(
+            exchange="BINANCE",
+            market_type=MarketType.SPOT,
+            symbol="BTCUSDT",
+            timeframe=Timeframe.ONE_MINUTE,
+            strategy=AlwaysLong(),
+            config=trader.config,
+            risk_limits=trader.risk_limits,
+            snapshot=snapshot,
+        )
+
+
 def test_risk_halt_latches_and_schedules_flatten(candle_factory) -> None:
     candles = [candle_factory(index) for index in range(29)]
     losing = candle_factory(27, open_price="11", high="12", low="9", close="10")
